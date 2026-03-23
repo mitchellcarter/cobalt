@@ -1,0 +1,32 @@
+# Full solution (use Cobalt.Watcher.sln for Watcher-only builds)
+Cobalt.sln
+
+# Build output
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+
+# Claude Code (may contain tokens in permission history)
+.claude/
+
+# Rider
+.idea/
+
+# SQLite database files (runtime data)
+*.db
+*.db-shm
+*.db-wal
+
+# .NET publish output
+publish/
+artifacts/
+
+# OS
+.DS_Store
+Thumbs.db
+
+Cobalt/
+Cobalt.Tests/
