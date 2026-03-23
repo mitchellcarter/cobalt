@@ -40,12 +40,12 @@ Every time you die in Rust, the app parses the kill line from `output_log.txt`, 
 
 All settings live in `Cobalt.Watcher/appsettings.json`.
 
-| Key | Description | Required |
-|-----|-------------|----------|
-| `LogFilePath` | Full path to `output_log.txt` | Yes |
-| `ApiBaseUrl` | Base URL of the Cobalt API server | Yes |
-| `CallbackPort` | Local port used for the OAuth callback | No (default: `7777`) |
-| `AuthTokenPath` | Path to persist the auth token | No (default: `watcher-auth.json`) |
+| Key | Description | Default |
+|-----|-------------|---------|
+| `LogFilePath` | Full path to `output_log.txt` | `D:\Steam\steamapps\common\Rust\output_log.txt` |
+| `ApiBaseUrl` | Base URL of the Cobalt API server | `http://localhost:5031` |
+| `CallbackPort` | Local port used for the OAuth callback | `7777` |
+| `AuthTokenPath` | Path to persist the auth token | `watcher-auth.json` |
 
 ## Building a release
 
