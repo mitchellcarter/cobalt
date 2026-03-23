@@ -7,6 +7,8 @@ A desktop app that tails your Rust client log in real time and persists everythi
 Every time you die in Rust, the app parses the kill line from `output_log.txt`, looks up the killer's Steam profile and Battlemetrics history, and displays it in a live kill feed.
 
 ## Requirements
+
+- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0)
 - Rust installed via Steam (needs access to `output_log.txt`)
 
 ## Setup
@@ -17,35 +19,43 @@ Every time you die in Rust, the app parses the kill line from `output_log.txt`, 
    cd cobalt
    ```
 
-2. Edit `Cobalt.Watcher/appsettings.json` (Note: each slash should be escaped with an additional slash):
+2. Edit `Cobalt.Watcher/appsettings.json` to set your log path and API URL:
    ```json
    {
      "LogFilePath": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Rust\\output_log.txt",
+     "ApiBaseUrl": "https://your-cobalt-server",
+     "CallbackPort": 7777,
+     "AuthTokenPath": "watcher-auth.json"
    }
    ```
 
-   The default log path is `C:\Program Files (x86)\Steam\steamapps\common\Rust\output_log.txt`. Adjust it to match your Steam library location.
+   Adjust `LogFilePath` to match your Steam library location. Each backslash must be escaped with an additional backslash.
 
-3. Run the app:
+3. Run the watcher:
    ```
-   dotnet run --project Cobalt
+   dotnet run --project Cobalt.Watcher
    ```
 
 ## Configuration
 
-| Key | Description | Required |
-|-----|-------------|----------|
-| `LogFilePath` | Full path to `output_log.txt` | Yes |
+All settings live in `Cobalt.Watcher/appsettings.json`.
+
+| Key | Description | Default |
+|-----|-------------|---------|
+| `LogFilePath` | Full path to `output_log.txt` | `D:\Steam\steamapps\common\Rust\output_log.txt` |
+| `ApiBaseUrl` | Base URL of the Cobalt API server | `http://localhost:5031` |
+| `CallbackPort` | Local port used for the OAuth callback | `7777` |
+| `AuthTokenPath` | Path to persist the auth token | `watcher-auth.json` |
 
 ## Building a release
 
 ```
-dotnet publish Cobalt -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o ./publish/win-x64
+dotnet publish Cobalt.Watcher -c Release -r win-x64 --self-contained true -p:PublishReadyToRun=true -o ./publish/win-x64
 ```
 
-Replace `win-x64` with `linux-x64` for Linux. The output folder contains the executable and all required native libraries (including the SQLite binary). Zip the folder and distribute it as-is.
+Replace `win-x64` with `linux-x64` for Linux. The output folder contains the executable and all required native libraries. Zip the folder and distribute it as-is.
 
-CI runs on every push and produces `win-x64` and `linux-x64` builds automatically when merging to `main`.
+CI builds and publishes `win-x64` and `linux-x64` releases automatically on every push to `main`.
 
 ## Notes
 
