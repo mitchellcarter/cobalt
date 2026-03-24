@@ -73,11 +73,32 @@ jobs:
           name: ${{ matrix.zip }}
           path: ./${{ matrix.zip }}
 
+  # ── VirusTotal scan ──────────────────────────────────────────────────────────
+  scan:
+    name: VirusTotal Scan
+    runs-on: ubuntu-latest
+    needs: publish
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Scan with VirusTotal
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          files: |
+            ./artifacts/Cobalt-windows-x64.zip/Cobalt-windows-x64.zip
+            ./artifacts/Cobalt-linux-x64.zip/Cobalt-linux-x64.zip
+
   # ── Create GitHub release ───────────────────────────────────────────────────
   release:
     name: Create Release
     runs-on: ubuntu-latest
-    needs: publish
+    needs: [ publish, scan ]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     permissions:
       contents: write
