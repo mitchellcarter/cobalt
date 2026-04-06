@@ -33,6 +33,8 @@ public sealed class UpdateCheckService(
             if (release is null) return;
 
             var tag = release.TagName?.TrimStart('v', 'V');
+            // Version.TryParse requires at least "major.minor"; pad single-number tags like "42" → "42.0"
+            if (!string.IsNullOrWhiteSpace(tag) && !tag.Contains('.')) tag += ".0";
             if (!Version.TryParse(tag, out var latest)) return;
 
             if (latest <= CurrentVersion)
