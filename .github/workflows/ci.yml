@@ -60,6 +60,7 @@ jobs:
             --self-contained true \
             -p:PublishReadyToRun=true \
             -p:DebugType=embedded \
+            -p:Version=${{ github.run_number }}.0.0 \
             -o ./publish/${{ matrix.rid }}
 
       - name: Zip
@@ -128,7 +129,6 @@ jobs:
           RELEASE_ID: ${{ steps.release.outputs.id }}
         with:
           script: |
-            // analysis is "filename=url,filename=url" — split on first = only since URLs contain =
             const lines = process.env.ANALYSIS.split(',').map(entry => {
               const idx = entry.indexOf('=');
               const name = entry.slice(0, idx);
