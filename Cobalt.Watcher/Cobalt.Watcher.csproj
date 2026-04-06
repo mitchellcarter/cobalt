@@ -5,6 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <OutputType>Exe</OutputType>
+    <!-- Overridden at publish time by CI via -p:Version={github.run_number}.0.0
+         This value is only used for local development builds. -->
+    <Version>0.0.0-local</Version>
   </PropertyGroup>
 
   <ItemGroup>

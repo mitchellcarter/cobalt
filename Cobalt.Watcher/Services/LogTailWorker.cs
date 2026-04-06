@@ -10,8 +10,19 @@ public sealed class LogTailWorker(
     WatcherAuthService authService,
     ILogger<LogTailWorker> logger) : BackgroundService
 {
+    // Bounded with Wait so the producer blocks rather than dropping lines when
+    // the consumer falls behind (e.g. slow network).  10 000 items is generous
+    // headroom; normal bursts are a handful of lines.
     private readonly Channel<string> _channel = Channel.CreateBounded<string>(
-        new BoundedChannelOptions(500) { FullMode = BoundedChannelFullMode.DropOldest });
+        new BoundedChannelOptions(10_000)
+        {
+            FullMode     = BoundedChannelFullMode.Wait,
+            SingleReader = true,
+        });
+
+    // Set by the FileSystemWatcher.Created handler (threadpool) and read on the
+    // main tail loop.  volatile ensures the write is visible without a lock.
+    private volatile bool _reopenPending;
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -52,36 +63,90 @@ public sealed class LogTailWorker(
 
     private async Task TailAsync(string path, CancellationToken ct)
     {
-        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
-            FileShare.ReadWrite | FileShare.Delete);
-        using var reader = new StreamReader(stream);
-
-        // Skip existing content — history is loaded from the DB on API startup.
+        var (stream, reader) = OpenLog(path);
         stream.Seek(0, SeekOrigin.End);
+
+        // Bounded signal channel (capacity 1, DropNewest) coalesces rapid FSW
+        // events into a single wake-up.  All three handlers are registered once
+        // and never re-added, so there is no handler accumulation.
+        var signal = Channel.CreateBounded<bool>(
+            new BoundedChannelOptions(1)
+            {
+                FullMode      = BoundedChannelFullMode.DropNewest,
+                SingleReader  = true,
+                SingleWriter  = false,
+            });
 
         using var watcher = new FileSystemWatcher(Path.GetDirectoryName(path)!, Path.GetFileName(path))
         {
-            NotifyFilter      = NotifyFilters.LastWrite | NotifyFilters.Size,
-            EnableRaisingEvents = true
+            NotifyFilter        = NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.FileName,
+            InternalBufferSize  = 65536,
+            EnableRaisingEvents = true,
         };
 
-        var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        watcher.Changed += (_, _) => tcs.TrySetResult();
+        watcher.Changed += (_, _) => signal.Writer.TryWrite(true);
 
-        while (!ct.IsCancellationRequested)
+        // File recreation (e.g. game restart): set a flag and signal; the actual
+        // dispose/reopen happens on the tail loop, not on this threadpool thread,
+        // which prevents races with concurrent ReadLineAsync calls.
+        watcher.Created += (_, _) =>
         {
-            await Task.WhenAny(tcs.Task, Task.Delay(2000, ct));
-            tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            logger.LogInformation("Log file recreated — will reopen stream");
+            _reopenPending = true;
+            signal.Writer.TryWrite(true);
+        };
 
-            string? line;
-            while ((line = await reader.ReadLineAsync(ct)) is not null)
+        // Re-arm after an internal buffer overflow.
+        watcher.Error += (_, e) =>
+        {
+            logger.LogWarning(e.GetException(), "FileSystemWatcher buffer overflow — re-arming");
+            watcher.EnableRaisingEvents = false;
+            watcher.EnableRaisingEvents = true;
+            signal.Writer.TryWrite(true);
+        };
+
+        try
+        {
+            while (!ct.IsCancellationRequested)
             {
-                if (!string.IsNullOrWhiteSpace(line))
-                    _channel.Writer.TryWrite(line);
+                // Wait for a FSW signal or fall back to the 2-second polling interval.
+                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                timeoutCts.CancelAfter(2000);
+                try   { await signal.Reader.ReadAsync(timeoutCts.Token); }
+                catch (OperationCanceledException) when (!ct.IsCancellationRequested) { /* timeout — fall through to read */ }
+
+                // Reopen the stream here (on the tail loop) rather than on the
+                // threadpool handler thread — safe because ReadLineAsync is not
+                // running at this point.
+                if (_reopenPending)
+                {
+                    _reopenPending = false;
+                    reader.Dispose();
+                    stream.Dispose();
+                    (stream, reader) = OpenLog(path);
+                }
+
+                string? line;
+                while ((line = await reader.ReadLineAsync(ct)) is not null)
+                {
+                    if (!string.IsNullOrWhiteSpace(line))
+                        await _channel.Writer.WriteAsync(line, ct);
+                }
             }
         }
+        finally
+        {
+            _channel.Writer.Complete();
+            reader.Dispose();
+            stream.Dispose();
+        }
+    }
 
-        _channel.Writer.Complete();
+    private static (FileStream stream, StreamReader reader) OpenLog(string path)
+    {
+        var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        return (stream, new StreamReader(stream));
     }
 
     // ── Line dispatch ────────────────────────────────────────────────────────────────────────────
@@ -118,14 +183,14 @@ public sealed class LogTailWorker(
                 FileShare.ReadWrite | FileShare.Delete);
             using var reader = new StreamReader(stream);
 
-            ConnectionLine? lastConn   = null;
+            ConnectionLine? lastConn     = null;
             var             disconnected = false;
 
             string? line;
             while ((line = await reader.ReadLineAsync(ct)) is not null)
             {
                 var parsed = LogParser.Parse(line);
-                if (parsed is ConnectionLine conn)              { lastConn = conn; disconnected = false; }
+                if (parsed is ConnectionLine conn)               { lastConn = conn; disconnected = false; }
                 else if (parsed is DisconnectedLine or QuitLine) { disconnected = true; }
             }
 
